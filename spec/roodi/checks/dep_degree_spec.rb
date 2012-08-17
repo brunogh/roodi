@@ -33,7 +33,7 @@ describe Roodi::Checks::DepDegreeMethodCheck do
   describe "method body with assignments (swap)" do
     let(:threshold){ 1 }    
   
-    it "has the right dependency degree" do
+    it "has the right dependency degree for simple swap" do
       content = <<-END
         def swap(a, b)
           temp = b
@@ -45,7 +45,7 @@ describe Roodi::Checks::DepDegreeMethodCheck do
       checks.first.score.should eq(3)
     end
 
-    it "has the right dependency degree" do
+    it "has the right dependency degree for complex swap" do
       content = <<-END
         def swap(a, b)
           a += b
@@ -56,7 +56,57 @@ describe Roodi::Checks::DepDegreeMethodCheck do
       checks = roodi.check_content(content)
       checks.first.score.should eq(6)
     end
-
   end
+
+  describe "method body with simple expressions" do
+    let(:threshold){ 1 }    
+  
+    it "has the right dependency degree with simple expressions that reference variables only" do
+      content = <<-END
+        def add_ten(a, b)
+          a + b
+        end
+      END
+      checks = roodi.check_content(content)
+      checks.first.score.should eq(2)
+    end
+
+    it "has the right dependency degree with simple expressions that refer to literals by ignoring literals in dependency score" do
+      content = <<-END
+        def add_ten(a, b)
+          a + 1 + b + :b + "asfs"
+        end
+      END
+      checks = roodi.check_content(content)
+      checks.first.score.should eq(2)
+    end
+
+    it "has the right dependency degree with expressions that contain nested assignment" do
+      content = <<-END
+        def add_ten(a, b)
+          a + b += 5
+        end
+      END
+      checks = roodi.check_content(content)
+      checks.first.score.should eq(3)
+    end
+  end
+
+  describe "method body with method chaining " do
+    let(:threshold){ 1 }    
+  
+    it "has the right dependency degree with expressions that make chained method calls" do
+      content = <<-END
+        def add_ten(foo)
+          foo.bar.baz
+        end
+      END
+      checks = roodi.check_content(content)
+      # 1 point for 'foo' reference to 'foo' initialization
+      # 0 points for call to foo.bar
+      # 1 point for (foo.bar).baz call
+      checks.first.score.should eq(2)
+    end
+  end  
 
 end

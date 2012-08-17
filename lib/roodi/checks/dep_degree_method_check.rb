@@ -13,6 +13,11 @@ module Roodi
           Assignment.new *args
         end
 
+        def call(*args)
+          args.push @counter
+          Call.new *args
+        end
+
         def reference(*args)
           args.push @counter
           Reference.new *args
@@ -80,6 +85,10 @@ module Roodi
         self.code = "A"
       end
 
+      class Call < Operation
+        self.code = "C"
+      end
+
       class Reference < Operation
         self.code = "R"
       end
@@ -98,6 +107,7 @@ module Roodi
 
       def initialize(*)
         @assignments = Hash.new{ |h,k| h[k] = [] }
+        @calls = Hash.new{ |h,k| h[k] = [] }
         @threshold = 10
         @counter = Counter.new
         @factory = Factory.new(@counter)
@@ -105,7 +115,7 @@ module Roodi
       end
 
       def __evaluate(node)
-        results = node.visitable_children.map do |sexp|
+        node.visitable_children.map do |sexp|
           case sexp[0]
           when :args
             operations = []
@@ -113,7 +123,8 @@ module Roodi
               assignment = @factory.assignment(sexp[0], [], {:name => arg, :line => sexp.line})
               @assignments[arg] << assignment
             end
-          when :scope, :block
+
+          when :scope, :block, :arglist
             __evaluate(sexp).flatten.compact
 
           when :lasgn
@@ -121,13 +132,27 @@ module Roodi
             dependencies = __evaluate(sexp).compact
             assignment = @factory.assignment(arg, dependencies, {:name => arg, :line => sexp.line})
             @assignments[arg] << assignment
-          when :call, :arglist
+
+          when :call
+            chain = collect_method_chain(sexp)
+            binding.pry
             __evaluate(sexp).flatten.compact
+
           when :lvar            
             arg = sexp[1]
-            reference = @factory.reference(arg, [], {:name => arg, :line => sexp.line})
+            reference = @factory.reference(arg, [@assignments[arg]].compact, {:name => arg, :line => sexp.line})
           end
         end
+      end
+
+      def collect_method_chain(node)
+        chain = []
+        sexp = node.visitable_children.first
+        while sexp.is_a?(Sexp)
+          chain << @factory.call("call", [], {})
+          sexp = sexp.visitable_children.first
+        end
+        chain
       end
 
       def evaluate_start(node)
@@ -154,10 +179,12 @@ module Roodi
 
         paths = paths.uniq
         @score = paths.length
-
+puts node.inspect
+binding.pry
         if @score > @threshold
           add_error "Method name \"#{@method_name}\" has a dependency degree of #{@score}. It should be #{@threshold} or less."
         end
+
       end
     end
   end
