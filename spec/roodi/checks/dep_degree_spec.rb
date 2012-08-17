@@ -107,6 +107,17 @@ describe Roodi::Checks::DepDegreeMethodCheck do
       # 1 point for (foo.bar).baz call
       checks.first.score.should eq(2)
     end
+
+    it "has the right dependency degree with expressions that make chained method calls" do
+      content = <<-END
+        def add_ten(foo)
+          foo.bar(5).baz(6).x.y.z
+        end
+      END
+      checks = roodi.check_content(content)
+      checks.first.score.should eq(5)
+    end
+
   end  
 
 end

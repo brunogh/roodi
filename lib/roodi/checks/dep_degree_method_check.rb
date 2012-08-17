@@ -114,7 +114,7 @@ module Roodi
         super
       end
 
-      def __evaluate(node)
+      def __evaluate(node, options={})
         node.visitable_children.map do |sexp|
           case sexp[0]
           when :args
@@ -134,9 +134,12 @@ module Roodi
             @assignments[arg] << assignment
 
           when :call
-            chain = collect_method_chain(sexp)
-            binding.pry
-            __evaluate(sexp).flatten.compact
+            if !options[:within_call]
+              chain = collect_method_chain(sexp)
+              @calls[sexp.line] << chain
+              @calls[sexp.line].flatten!
+            end
+            __evaluate(sexp, :within_call => true).flatten.compact
 
           when :lvar            
             arg = sexp[1]
@@ -149,7 +152,7 @@ module Roodi
         chain = []
         sexp = node.visitable_children.first
         while sexp.is_a?(Sexp)
-          chain << @factory.call("call", [], {})
+          chain << @factory.call("call", [], {:line => sexp.line})
           sexp = sexp.visitable_children.first
         end
         chain
@@ -178,9 +181,12 @@ module Roodi
         end
 
         paths = paths.uniq
-        @score = paths.length
-puts node.inspect
-binding.pry
+        @score += paths.length
+
+        @calls.each_pair do |lineno, chain| 
+          @score += chain.length - 1
+        end
+
         if @score > @threshold
           add_error "Method name \"#{@method_name}\" has a dependency degree of #{@score}. It should be #{@threshold} or less."
         end
