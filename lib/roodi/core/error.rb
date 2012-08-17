@@ -12,6 +12,10 @@ module Roodi
       def to_s
         "#{@filename}:#{@line_number} - #{@message}"
       end
+
+      def ==(other)
+        other.is_a?(self.class) && other.to_s == self.to_s
+      end
     end
   end
 end
