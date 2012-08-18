@@ -8,6 +8,11 @@ module Roodi
           @counter = counter
         end
 
+        def arg_initialization(*args)
+          args.push @counter
+          Initialization.new *args
+        end          
+
         def assignment(*args)
           args.push @counter
           Assignment.new *args
@@ -16,6 +21,11 @@ module Roodi
         def call(*args)
           args.push @counter
           Call.new *args
+        end
+
+        def inline_reference(*args)
+          args.push @counter
+          InlineReference.new *args
         end
 
         def reference(*args)
@@ -33,14 +43,14 @@ module Roodi
           @operations ||= []
         end
 
-        def next_id
-          @next_id ||= 0
-          @next_id += 1
+        def next_id(klass)
+          @ids ||= Hash.new{ |h,k| h[k] = 0 }
+          @ids[klass] += 1
         end
       end
 
       class Operation
-        attr_reader :dependencies
+        attr_accessor :dependencies
 
         def self.code=(code)
           @code = code
@@ -58,14 +68,14 @@ module Roodi
           @dependencies = [dependencies].flatten
           @metadata = metadata
           @type = type
-          @id = counter.next_id
+          @id = counter.next_id(self.class)
           counter.add self
         end
 
         def dependency_paths
           @dependencies.map do |dep|
-            "#{short}-#{dep.short}" if dep
-          end
+            "#{short}-#{dep.short}" if !dep.is_a?(Reference)
+          end.compact
         end
 
         def to_s
@@ -78,15 +88,24 @@ module Roodi
 
         def short
           "#{code}#{@id}"
-        end        
+        end  
+
       end
 
       class Assignment < Operation
         self.code = "A"
       end
 
+      class Initialization < Operation
+        self.code = "I"
+      end
+
       class Call < Operation
         self.code = "C"
+      end
+
+      class InlineReference < Operation
+        self.code = "IR"
       end
 
       class Reference < Operation
@@ -107,7 +126,7 @@ module Roodi
 
       def initialize(*)
         @assignments = Hash.new{ |h,k| h[k] = [] }
-        @calls = Hash.new{ |h,k| h[k] = [] }
+        @calls = []
         @threshold = 10
         @counter = Counter.new
         @factory = Factory.new(@counter)
@@ -116,34 +135,41 @@ module Roodi
 
       def __evaluate(node, options={})
         node.visitable_children.map do |sexp|
+
           case sexp[0]
           when :args
             operations = []
             sexp[1..-1].each do |arg|
-              assignment = @factory.assignment(sexp[0], [], {:name => arg, :line => sexp.line})
+              assignment = @factory.arg_initialization(sexp[0], [], {:name => arg, :line => sexp.line})
               @assignments[arg] << assignment
             end
 
-          when :scope, :block, :arglist
+          when :scope, :block
             __evaluate(sexp).flatten.compact
+
+          when :arglist
+            __evaluate(sexp, :within_arglist => true).flatten.compact
 
           when :lasgn
             arg = sexp[1]
-            dependencies = __evaluate(sexp).compact
-            assignment = @factory.assignment(arg, dependencies, {:name => arg, :line => sexp.line})
-            @assignments[arg] << assignment
+            dependencies = __evaluate(sexp).compact.flatten
+            @factory.assignment(arg, dependencies, {:name => arg, :line => sexp.line}).tap do |assignment|
+              @assignments[arg] << assignment
+              if options[:within_arglist]
+                @factory.inline_reference(arg, [assignment], {:name => arg, :line => sexp.line})
+              end
+            end
 
           when :call
             if !options[:within_call]
               chain = collect_method_chain(sexp)
-              @calls[sexp.line] << chain
-              @calls[sexp.line].flatten!
+              @calls << chain.flatten
             end
             __evaluate(sexp, :within_call => true).flatten.compact
 
           when :lvar            
             arg = sexp[1]
-            reference = @factory.reference(arg, [@assignments[arg]].compact, {:name => arg, :line => sexp.line})
+            reference = @factory.reference(arg, [@assignments[arg].last].compact, {:name => arg, :line => sexp.line})
           end
         end
       end
@@ -152,7 +178,9 @@ module Roodi
         chain = []
         sexp = node.visitable_children.first
         while sexp.is_a?(Sexp)
-          chain << @factory.call("call", [], {:line => sexp.line})
+ #         if sexp.last.is_a?(Sexp) && sexp.last.last.first != :lit   # uncomment if you want to start ignoring literals in chained method calls
+            chain << @factory.call("call", [], {:line => sexp.line})
+ #         end
           sexp = sexp.visitable_children.first
         end
         chain
@@ -172,7 +200,7 @@ module Roodi
           paths.push *operation.dependency_paths
           operation.dependencies.each do |d|
             paths.push *d.dependency_paths
-            push_paths.call d
+#            push_paths.call d
           end
         }
 
@@ -183,8 +211,8 @@ module Roodi
         paths = paths.uniq
         @score += paths.length
 
-        @calls.each_pair do |lineno, chain| 
-          @score += chain.length - 1
+        @calls.each do |chain| 
+          @score += chain.length - 1 if chain.any?
         end
 
         if @score > @threshold

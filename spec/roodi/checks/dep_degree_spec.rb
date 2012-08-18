@@ -71,14 +71,14 @@ describe Roodi::Checks::DepDegreeMethodCheck do
       checks.first.score.should eq(2)
     end
 
-    it "has the right dependency degree with simple expressions that refer to literals by ignoring literals in dependency score" do
+    it "has the right dependency degree with simple expressions that refer to literals" do
       content = <<-END
         def add_ten(a, b)
           a + 1 + b + :b + "asfs"
         end
       END
       checks = roodi.check_content(content)
-      checks.first.score.should eq(2)
+      checks.first.score.should eq(5)
     end
 
     it "has the right dependency degree with expressions that contain nested assignment" do
@@ -87,6 +87,15 @@ describe Roodi::Checks::DepDegreeMethodCheck do
           a + b += 5
         end
       END
+      # should be 3 because it expands to the equivalent of: 
+      #
+      #   def add_ten(a, b)
+      #     b = b + 5
+      #     a + b
+      #
+      # 1 point for b's reference to b on line 1 R2-I2
+      # 1 point for a's reference to a on line 1 R1-I1
+      # 1 point for b's reference to b on line 1 R3-A1
       checks = roodi.check_content(content)
       checks.first.score.should eq(3)
     end
