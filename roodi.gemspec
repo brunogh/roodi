@@ -10,7 +10,7 @@ Gem::Specification.new do |gem|
   gem.authors = ["Marty Andrews"]
   gem.email = "marty@cogent.co"
 
-  gem.version = Roodi::VERSION.dup
+  gem.version = '0.0.1'#Roodi::VERSION.dup
   gem.platform = Gem::Platform::RUBY
   gem.add_runtime_dependency("ruby_parser")
   gem.executables = ["roodi", "roodi-describe"]
